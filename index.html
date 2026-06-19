@@ -13,13 +13,27 @@
     <header class="header">
       <h1>全商 情報処理 Excel採点アプリ</h1>
       <p>
-        生徒のExcelファイルを読み込み、指定セルや数式を確認して採点します。
+        採点基準CSVを読み込み、生徒のExcelファイルをまとめて採点します。
       </p>
     </header>
 
     <main>
       <section class="card">
-        <h2>1. Excelファイルを選択</h2>
+        <h2>1. 採点基準CSVを選択</h2>
+
+        <input
+          type="file"
+          id="ruleFile"
+          accept=".csv"
+        />
+
+        <p class="note">
+          CSV形式：項目,シート名,セル,種類,正解,配点
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>2. 生徒のExcelファイルを選択</h2>
 
         <input
           type="file"
@@ -34,7 +48,7 @@
       </section>
 
       <section class="card">
-        <h2>2. 採点開始</h2>
+        <h2>3. 採点開始</h2>
 
         <button id="gradeBtn">
           採点する
@@ -46,7 +60,7 @@
       </section>
 
       <section class="card">
-        <h2>3. 採点結果</h2>
+        <h2>4. 採点結果</h2>
 
         <div id="summary">
           まだ採点していません。
@@ -68,10 +82,7 @@
     </main>
   </div>
 
-  <!-- Excelを読み込むためのライブラリ -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-
-  <!-- 自分で作る動きのファイル -->
   <script src="app.js"></script>
 </body>
 </html>
