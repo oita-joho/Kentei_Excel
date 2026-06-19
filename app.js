@@ -4,29 +4,50 @@ let results = [];
 document.getElementById("gradeBtn").addEventListener("click", gradeAll);
 document.getElementById("csvBtn").addEventListener("click", downloadCSV);
 
+function setSummary(msg) {
+  document.getElementById("summary").textContent = msg;
+}
+
 async function gradeAll() {
-  const ruleFile = document.getElementById("ruleFile").files[0];
-  const excelFiles = document.getElementById("excelFiles").files;
+  try {
+    const ruleFile = document.getElementById("ruleFile").files[0];
+    const excelFiles = document.getElementById("excelFiles").files;
 
-  if (!ruleFile) {
-    alert("採点基準CSVを選択してください。");
-    return;
+    if (!ruleFile) {
+      alert("採点基準CSVを選択してください。");
+      return;
+    }
+
+    if (excelFiles.length === 0) {
+      alert("生徒のExcelファイルを選択してください。");
+      return;
+    }
+
+    setSummary("採点基準CSVを読み込み中...");
+
+    rules = await readRuleCSV(ruleFile);
+
+    if (rules.length === 0) {
+      alert("採点基準CSVが読み込めませんでした。");
+      return;
+    }
+
+    setSummary(`採点基準 ${rules.length} 件を読み込みました。Excelを採点中...`);
+
+    results = [];
+
+    for (const file of excelFiles) {
+      const result = await gradeExcel(file);
+      results.push(result);
+    }
+
+    showResults();
+
+  } catch (err) {
+    console.error(err);
+    setSummary("エラー：" + err.message);
+    alert("エラーが出ました。画面下の採点結果欄を確認してください。");
   }
-
-  if (excelFiles.length === 0) {
-    alert("生徒のExcelファイルを選択してください。");
-    return;
-  }
-
-  rules = await readRuleCSV(ruleFile);
-  results = [];
-
-  for (const file of excelFiles) {
-    const result = await gradeExcel(file);
-    results.push(result);
-  }
-
-  showResults();
 }
 
 function readRuleCSV(file) {
@@ -34,19 +55,21 @@ function readRuleCSV(file) {
     const reader = new FileReader();
 
     reader.onload = (e) => {
-      const text = e.target.result;
+      let text = e.target.result.replace(/^\uFEFF/, "");
       const lines = text.trim().split(/\r?\n/);
       const data = [];
 
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(",");
 
+        if (cols.length < 6) continue;
+
         data.push({
-          name: cols[0],
-          sheet: cols[1],
-          cell: cols[2],
-          type: cols[3],
-          answer: cols[4],
+          name: cols[0].trim(),
+          sheet: cols[1].trim(),
+          cell: cols[2].trim(),
+          type: cols[3].trim(),
+          answer: cols[4].trim(),
           point: Number(cols[5])
         });
       }
@@ -59,59 +82,69 @@ function readRuleCSV(file) {
 }
 
 function gradeExcel(file) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
     reader.onload = (e) => {
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, { type: "array", cellFormula: true });
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array", cellFormula: true });
 
-      let score = 0;
-      let max = 0;
-      const details = [];
+        let score = 0;
+        let max = 0;
+        const details = [];
 
-      for (const rule of rules) {
-        max += rule.point;
+        for (const rule of rules) {
+          max += rule.point;
 
-        const sheet = workbook.Sheets[rule.sheet];
-        if (!sheet) {
-          details.push(`${rule.name}: × シートなし`);
-          continue;
+          const sheet = workbook.Sheets[rule.sheet];
+
+          if (!sheet) {
+            details.push(
+              `${rule.name}: × シート「${rule.sheet}」なし（実際のシート：${workbook.SheetNames.join("、")}）`
+            );
+            continue;
+          }
+
+          const cell = sheet[rule.cell];
+
+          if (!cell) {
+            details.push(`${rule.name}: × セル「${rule.cell}」なし`);
+            continue;
+          }
+
+          let ok = false;
+
+          if (rule.type === "value") {
+            ok = String(cell.v ?? "").trim() === String(rule.answer).trim();
+          }
+
+          if (rule.type === "formula") {
+            const formula = String(cell.f ?? "").toUpperCase();
+            ok = formula.includes(String(rule.answer).toUpperCase());
+          }
+
+          if (ok) {
+            score += rule.point;
+            details.push(`${rule.name}: ○ +${rule.point}`);
+          } else {
+            details.push(`${rule.name}: × 実際の値=${cell.v ?? ""} 数式=${cell.f ?? ""}`);
+          }
         }
 
-        const cell = sheet[rule.cell];
-        if (!cell) {
-          details.push(`${rule.name}: × セルなし`);
-          continue;
-        }
+        resolve({
+          fileName: file.name,
+          score,
+          max,
+          details: details.join(" / ")
+        });
 
-        let ok = false;
-
-        if (rule.type === "value") {
-          ok = String(cell.v ?? "").trim() === String(rule.answer).trim();
-        }
-
-        if (rule.type === "formula") {
-          const formula = String(cell.f ?? "").toUpperCase();
-          ok = formula.includes(String(rule.answer).toUpperCase());
-        }
-
-        if (ok) {
-          score += rule.point;
-          details.push(`${rule.name}: ○ +${rule.point}`);
-        } else {
-          details.push(`${rule.name}: ×`);
-        }
+      } catch (err) {
+        reject(err);
       }
-
-      resolve({
-        fileName: file.name,
-        score,
-        max,
-        details: details.join(" / ")
-      });
     };
 
+    reader.onerror = () => reject(new Error("Excelファイルを読み込めませんでした。"));
     reader.readAsArrayBuffer(file);
   });
 }
@@ -140,9 +173,7 @@ function showResults() {
 }
 
 function downloadCSV() {
-  const rows = [
-    ["ファイル名", "得点", "満点", "詳細"]
-  ];
+  const rows = [["ファイル名", "得点", "満点", "詳細"]];
 
   for (const r of results) {
     rows.push([r.fileName, r.score, r.max, r.details]);
